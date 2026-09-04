@@ -1,0 +1,304 @@
+"""
+TITAN CODEX - Local RAG System (Lightweight Version)
+Soul Box Storage & Retrieval for AI Context Management
+
+This version uses:
+- Ollama for embeddings and generation (100% free, runs locally)
+- Simple JSON file for storage (no C++ build tools needed!)
+- Flask for web server (simple, lightweight)
+"""
+
+from flask import Flask, render_template, request, jsonify
+from flask_cors import CORS
+import ollama
+import os
+import json
+import numpy as np
+from datetime import datetime
+
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app)
+
+# Database file
+DB_FILE = "codex_database.json"
+
+# Ollama models
+EMBED_MODEL = "nomic-embed-text"
+CHAT_MODEL = "llama3.2:3b"
+
+# Initialize database
+def init_db():
+    """Initialize or load the database"""
+    if not os.path.exists(DB_FILE):
+        with open(DB_FILE, 'w') as f:
+            json.dump({"soul_boxes": [], "stats": {"total_boxes": 0, "total_words": 0}}, f)
+        print("✅ Created new database file")
+    else:
+        print("✅ Loaded existing database")
+
+def load_db():
+    """Load database from file"""
+    with open(DB_FILE, 'r') as f:
+        return json.load(f)
+
+def save_db(db):
+    """Save database to file"""
+    with open(DB_FILE, 'w') as f:
+        json.dump(db, f, indent=2)
+
+def get_embedding(text):
+    """Generate embedding for text using Ollama"""
+    try:
+        response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+        return response['embedding']
+    except Exception as e:
+        print(f"❌ Embedding error: {e}")
+        return None
+
+def cosine_similarity(v1, v2):
+    """Calculate cosine similarity between two vectors"""
+    v1 = np.array(v1)
+    v2 = np.array(v2)
+    return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+
+def store_soul_box(content, tags, title):
+    """Store a soul box in the codex"""
+    try:
+        # Load database
+        db = load_db()
+        
+        # Generate unique ID
+        box_id = f"box_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Get embedding
+        embedding = get_embedding(content)
+        if not embedding:
+            return {"success": False, "error": "Failed to generate embedding"}
+        
+        # Create soul box
+        soul_box = {
+            "id": box_id,
+            "title": title,
+            "content": content,
+            "tags": tags if isinstance(tags, list) else tags.split(','),
+            "embedding": embedding,
+            "timestamp": datetime.now().isoformat(),
+            "word_count": len(content.split())
+        }
+        
+        # Add to database
+        db["soul_boxes"].append(soul_box)
+        db["stats"]["total_boxes"] = len(db["soul_boxes"])
+        db["stats"]["total_words"] = sum(box["word_count"] for box in db["soul_boxes"])
+        
+        # Save database
+        save_db(db)
+        
+        print(f"✅ Stored soul box: {title} ({box_id})")
+        return {
+            "success": True,
+            "id": box_id,
+            "metadata": {
+                "title": title,
+                "tags": soul_box["tags"],
+                "timestamp": soul_box["timestamp"],
+                "word_count": soul_box["word_count"]
+            }
+        }
+        
+    except Exception as e:
+        print(f"❌ Storage error: {e}")
+        return {"success": False, "error": str(e)}
+
+def search_soul_boxes(query, n_results=5, tag_filter=None):
+    """Search for relevant soul boxes"""
+    try:
+        # Load database
+        db = load_db()
+        
+        if not db["soul_boxes"]:
+            return {"success": True, "results": []}
+        
+        # Generate query embedding
+        query_embedding = get_embedding(query)
+        if not query_embedding:
+            return {"success": False, "error": "Failed to generate query embedding"}
+        
+        # Calculate similarities
+        results = []
+        for box in db["soul_boxes"]:
+            # Apply tag filter if provided
+            if tag_filter and tag_filter not in box["tags"]:
+                continue
+            
+            similarity = cosine_similarity(query_embedding, box["embedding"])
+            results.append({
+                "id": box["id"],
+                "content": box["content"],
+                "metadata": {
+                    "title": box["title"],
+                    "tags": ",".join(box["tags"]),
+                    "timestamp": box["timestamp"],
+                    "word_count": box["word_count"]
+                },
+                "similarity": similarity
+            })
+        
+        # Sort by similarity
+        results.sort(key=lambda x: x["similarity"], reverse=True)
+        
+        # Return top N results
+        results = results[:n_results]
+        
+        print(f"✅ Found {len(results)} soul boxes for query: {query}")
+        return {"success": True, "results": results}
+        
+    except Exception as e:
+        print(f"❌ Search error: {e}")
+        return {"success": False, "error": str(e)}
+
+def list_all_boxes():
+    """List all stored soul boxes"""
+    try:
+        db = load_db()
+        
+        boxes = []
+        for box in db["soul_boxes"]:
+            boxes.append({
+                "id": box["id"],
+                "title": box["title"],
+                "tags": ",".join(box["tags"]),
+                "timestamp": box["timestamp"],
+                "word_count": box["word_count"]
+            })
+        
+        # Sort by timestamp (newest first)
+        boxes.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        return {"success": True, "boxes": boxes, "total": len(boxes)}
+        
+    except Exception as e:
+        print(f"❌ List error: {e}")
+        return {"success": False, "error": str(e)}
+
+def delete_soul_box(box_id):
+    """Delete a soul box"""
+    try:
+        db = load_db()
+        
+        # Find and remove the box
+        db["soul_boxes"] = [box for box in db["soul_boxes"] if box["id"] != box_id]
+        
+        # Update stats
+        db["stats"]["total_boxes"] = len(db["soul_boxes"])
+        db["stats"]["total_words"] = sum(box["word_count"] for box in db["soul_boxes"])
+        
+        save_db(db)
+        
+        print(f"✅ Deleted soul box: {box_id}")
+        return {"success": True}
+    except Exception as e:
+        print(f"❌ Delete error: {e}")
+        return {"success": False, "error": str(e)}
+
+# Flask routes
+@app.route('/')
+def index():
+    """Serve the main page"""
+    return render_template('codex.html')
+
+@app.route('/api/store', methods=['POST'])
+def api_store():
+    """API endpoint to store a soul box"""
+    data = request.json
+    content = data.get('content', '')
+    tags = data.get('tags', [])
+    title = data.get('title', 'Untitled Soul Box')
+    
+    if not content:
+        return jsonify({"success": False, "error": "No content provided"})
+    
+    result = store_soul_box(content, tags, title)
+    return jsonify(result)
+
+@app.route('/api/search', methods=['POST'])
+def api_search():
+    """API endpoint to search soul boxes"""
+    data = request.json
+    query = data.get('query', '')
+    n_results = data.get('n_results', 5)
+    tag_filter = data.get('tag_filter', None)
+    
+    if not query:
+        return jsonify({"success": False, "error": "No query provided"})
+    
+    result = search_soul_boxes(query, n_results, tag_filter)
+    return jsonify(result)
+
+@app.route('/api/list', methods=['GET'])
+def api_list():
+    """API endpoint to list all soul boxes"""
+    result = list_all_boxes()
+    return jsonify(result)
+
+@app.route('/api/delete', methods=['POST'])
+def api_delete():
+    """API endpoint to delete a soul box"""
+    data = request.json
+    box_id = data.get('id', '')
+    
+    if not box_id:
+        return jsonify({"success": False, "error": "No ID provided"})
+    
+    result = delete_soul_box(box_id)
+    return jsonify(result)
+
+@app.route('/api/stats', methods=['GET'])
+def api_stats():
+    """API endpoint to get codex statistics"""
+    try:
+        db = load_db()
+        
+        # Get unique tags
+        all_tags = []
+        for box in db["soul_boxes"]:
+            all_tags.extend(box["tags"])
+        unique_tags = list(set(all_tags))
+        
+        return jsonify({
+            "success": True,
+            "stats": {
+                "total_boxes": db["stats"]["total_boxes"],
+                "total_words": db["stats"]["total_words"],
+                "unique_tags": len(unique_tags),
+                "tags": sorted(unique_tags)
+            }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+if __name__ == '__main__':
+    print("\n" + "="*60)
+    print("🔥 TITAN CODEX - Soul Box Storage System (Lightweight)")
+    print("="*60)
+    print(f"📦 Database file: {DB_FILE}")
+    print(f"🤖 Embedding model: {EMBED_MODEL}")
+    print(f"💬 Chat model: {CHAT_MODEL}")
+    print("="*60)
+    
+    # Initialize database
+    init_db()
+    
+    print("\n⚡ Starting server on http://localhost:5000")
+    print("📝 Open this URL in your browser to use the Codex\n")
+    
+    # Check if Ollama is running
+    try:
+        ollama.list()
+        print("✅ Ollama is running!\n")
+    except:
+        print("⚠️  WARNING: Ollama might not be running!")
+        print("   Make sure Ollama is installed and running.\n")
+    
+    app.run(debug=True, host='0.0.0.0', port=5000)
