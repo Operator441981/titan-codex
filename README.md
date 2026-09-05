@@ -29,6 +29,10 @@ Search works by cosine similarity: a query gets embedded the same way stored ent
 
 At my current entry count, I don't need concurrency or enterprise-grade anything — this is single-user, single-machine. JSON meant zero setup dependencies and a file I can open and read directly. The tradeoff is scalability: it's a full linear scan on every search. Known limitation, not a surprise — a real database migration is a planned future step, not urgent yet.
 
+## Keeping track of entries
+
+I also keep a separate log of every entry stored — what it's about and when — as a quick index without having to open the full JSON file. It's not included in this repo since it lists actual entry titles and topics from my personal/project work, but the mechanism is simple: every store operation gets a corresponding row logged alongside it.
+
 ## Recent fixes (Aug 30, 2026)
 
 Two real bugs found and fixed in `titan_codex_server_simple.py`:
@@ -39,7 +43,7 @@ Two real bugs found and fixed in `titan_codex_server_simple.py`:
 
 ## Status
 
-`codex_database.json` holds real personal and project content and will never be published, regardless of what happens with the rest of this code. It's excluded via `.gitignore`.
+`codex_database.json` and the entry log both hold real personal and project content and will never be published, regardless of what happens with the rest of this code. Both are excluded via `.gitignore`.
 
 ## Stack
 
