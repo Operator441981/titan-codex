@@ -1,4 +1,5 @@
-﻿codex_database.json
+codex_database.json
+CODEX_ENTRY_LOG.csv
 __pycache__/
 *.pyc
 .env
