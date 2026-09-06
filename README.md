@@ -33,13 +33,25 @@ At my current entry count, I don't need concurrency or enterprise-grade anything
 
 I also keep a separate log of every entry stored — what it's about and when — as a quick index without having to open the full JSON file. It's not included in this repo since it lists actual entry titles and topics from my personal/project work, but the mechanism is simple: every store operation gets a corresponding row logged alongside it.
 
-## Recent fixes (Aug 30, 2026)
+## Changelog
 
-Two real bugs found and fixed in `titan_codex_server_simple.py`:
+**Sept 6, 2026** — Repo made public. Rewrote `INSTALLATION_GUIDE.md` end to end (it still described the old ChromaDB architecture — now matches the current `titan_codex_server_simple.py` setup, plus a new MCP connection step). Fixed `requirements.txt` (was pinned to old, wrong dependency versions from the ChromaDB era). Removed `CODEX_ENTRY_LOG.csv` from the repo entirely — real personal/project entry titles had no business being public.
+
+**Aug 30, 2026** — Two real bugs found and fixed in `titan_codex_server_simple.py`:
 
 **Security exposure.** The server was running `app.run(debug=True, host='0.0.0.0', port=5000)`. `host='0.0.0.0'` bound it to every network interface — reachable from any device on the home network, not just this machine. `debug=True` enables Werkzeug's interactive debugger, which gives a live Python console at any unhandled error — real code-execution risk if reachable. Fixed to `debug=False`, `host='127.0.0.1'`. Verified zero functional impact first: the MCP bridge only ever calls `localhost:5000`, confirmed by reading that file before making the change.
 
 **Data-quality bug.** `store_soul_box()` split tags with `tags.split(',')` and never stripped whitespace. Anything saved through the web UI as `"TITAN, ESTIMATOR"` stored the second tag as `" ESTIMATOR"` — leading space baked in as a literal character. Since tag search does an exact match, searching `"ESTIMATOR"` silently never matched it. No crash, no error — it just quietly returned nothing. Fixed to strip each tag: `[t.strip() for t in tags.split(',')]`. Forward-only — doesn't retroactively clean tags already stored before the fix.
+
+## Roadmap
+
+**Hosting.** Right now CODEX only runs on TITAN-COMMAND — no access from anywhere else. Two paths depending on what comes through: a contact may be bringing a couple of Dell R640 servers for a proper home lab, which would host CODEX (and other services) with real cross-device access. If that doesn't materialize, the fallback is a small cloud VPS instead. A new personal desktop build arrives next week, which frees up the current machine for this kind of dedicated lab/server role.
+
+**Consolidation agent.** As entry count grows, a batch job to review, merge, and clean up related or redundant entries — with a mandatory human-approval gate before anything is deleted or merged. Not automatic cleanup; a proposal you sign off on.
+
+**Approval-gated publishing.** A scheduled check-in that drafts a post from recent CODEX activity and sends it for review — never publishes on its own. Parked until there's enough regular posting activity to actually justify automating the check-in (no point automating something that only happens once a week by hand).
+
+**Cross-device access.** Once hosting moves off a single desktop, CODEX becomes reachable from a phone or another machine, not just whatever box happens to be running the Flask server.
 
 ## Status
 
